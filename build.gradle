@@ -1,0 +1,147 @@
+import org.apache.tools.ant.taskdefs.condition.Os
+
+ext {
+    // The drivers we want to use
+    drivers = ["chrome", "phantomJs", "firefox", "ie"]
+
+    ext {
+        groovyVersion = '2.4'
+        gebVersion = '1.1.1'
+        seleniumVersion = '3.0.1'
+        chromeDriverVersion = '2.25'
+        phantomJsVersion = '1.9.7'
+        marionetteDriverVersion = '2.4.1'
+    }
+}
+
+apply plugin: "groovy"
+apply from: "gradle/idea.gradle"
+apply from: "gradle/osSpecificDownloads.gradle"
+
+repositories {
+    jcenter()
+    jcenter{
+        url 'https://dl.bintray.com/epam/reportportal'
+    }
+}
+
+dependencies {
+    testCompile 'com.epam.reportportal:agent-java-spock:2.6.0'
+    testCompile 'com.epam.reportportal:logger-java-logback:2.6.0'
+    compile group: 'ch.qos.logback', name: 'logback-classic', version: '1.2.2'
+
+    compile group: 'org.projectlombok', name: 'lombok', version: '1.16.16'
+
+
+    compileOnly 'org.spockframework:spock-core:1.0-groovy-2.4'
+    compile group: 'org.seleniumhq.selenium', name: 'selenium-support', version: '3.0.1'
+    // If using Spock, need to depend on geb-spock
+    testCompile "org.gebish:geb-spock:$gebVersion"
+    testCompile("org.spockframework:spock-core:1.0-groovy-2.4") {
+        exclude group: "org.codehaus.groovy"
+    }
+    "navigator.sayswho= (function(){\n" +
+            "    var ua= navigator.userAgent, tem, \n" +
+            "    M= ua.match(/(opera|chrome|safari|firefox|msie|trident(?=\\/))\\/?\\s*(\\d+)/i) || [];\n" +
+            "    if(/trident/i.test(M[1])){\n" +
+            "        tem=  /\\brv[ :]+(\\d+)/g.exec(ua) || [];\n" +
+            "        return 'IE '+(tem[1] || '');\n" +
+            "    }\n" +
+            "    if(M[1]=== 'Chrome'){\n" +
+            "        tem= ua.match(/\\b(OPR|Edge)\\/(\\d+)/);\n" +
+            "        if(tem!= null) return tem.slice(1).join(' ').replace('OPR', 'Opera');\n" +
+            "    }\n" +
+            "    M= M[2]? [M[1], M[2]]: [navigator.appName, navigator.appVersion, '-?'];\n" +
+            "    if((tem= ua.match(/version\\/(\\d+)/i))!= null) M.splice(1, 1, tem[1]);\n" +
+            "    return M.join(' ');\n" +
+            "})();\n" +
+            "\n" +
+            "console.log(navigator.sayswho);"
+    testCompile "org.codehaus.groovy:groovy-all:$groovyVersion"
+
+    // If using JUnit, need to depend on geb-junit (3 or 4)
+    testCompile "org.gebish:geb-junit4:$gebVersion"
+
+    testCompile "junit:junit:4.10"
+    //testCompile "org.codehaus.geb:geb-junit4:0.7.2"
+    // Drivers
+    testCompile "org.seleniumhq.selenium:selenium-chrome-driver:$seleniumVersion"
+    testCompile "org.seleniumhq.selenium:selenium-firefox-driver:$seleniumVersion"
+    testCompile "org.webjars:backbone-marionette:$marionetteDriverVersion"
+    // using a custom version of phantomjs driver for now as the original one does not support WebDriver > 2.43.1
+    testCompile("com.codeborne:phantomjsdriver:1.2.1") {
+        // phantomjs driver pulls in a different selenium version
+        transitive = false
+    }
+
+    configurations.all {
+        resolutionStrategy {
+            force 'org.codehaus.groovy:groovy-all:2.4.7'
+        }
+    }
+
+// https://mvnrepository.com/artifact/org.seleniumhq.selenium/selenium-support
+    //testCompile "org.seleniumhq.selenium:selenium-support:$seleniumVersion"
+
+    // https://mvnrepository.com/artifact/org.seleniumhq.selenium/selenium-support
+   // testCompile group: 'org.seleniumhq.selenium', name: 'selenium-support', version: '3.0.1'
+
+
+
+}
+
+drivers.each { driver ->
+    task "${driver}Test"(type: Test) {
+        reports {
+            html.destination = reporting.file("$name/tests")
+            junitXml.destination = file("$buildDir/test-results/$name")
+        }
+
+        outputs.upToDateWhen { false }  // Always run tests
+
+        systemProperty "geb.build.reportsDir", reporting.file("$name/geb")
+        systemProperty "geb.env", driver
+
+        // If you wanted to set the baseUrl in your build…
+        // systemProperty "geb.build.baseUrl", "http://myapp.com"
+    }
+}
+
+chromeTest {
+    dependsOn unzipChromeDriver
+
+    def chromedriverFilename = Os.isFamily(Os.FAMILY_WINDOWS) ? "chromedriver.exe" : "chromedriver"
+    systemProperty "webdriver.chrome.driver", new File(unzipChromeDriver.outputs.files.singleFile, chromedriverFilename).absolutePath
+}
+
+phantomJsTest {
+    dependsOn unzipPhantomJs
+
+    def phantomJsFilename = Os.isFamily(Os.FAMILY_WINDOWS) ? "phantomjs.exe" : "bin/phantomjs"
+    systemProperty "phantomjs.binary.path", new File(unzipPhantomJs.outputs.files.singleFile, phantomJsFilename).absolutePath
+}
+
+test {
+    dependsOn drivers.collect { tasks["${it}Test"] }
+    enabled = false
+    maxParallelForks = 2
+}
+
+apply from: "gradle/ci.gradle"
+
+/*task writeNewPom {
+    doLast {
+        pom {
+            project {
+                inceptionYear '2008'
+                licenses {
+                    license {
+                        name 'The Apache Software License, Version 2.0'
+                        url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                        distribution 'repo'
+                    }
+                }
+            }
+        }.writeTo("$buildDir/newpom.xml")
+    }
+}*/
